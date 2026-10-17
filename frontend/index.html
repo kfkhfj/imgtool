@@ -210,7 +210,6 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16p
 </div>
 
 <script>
-// ==================== State Management ====================
 const state = { images: [], activeIndex: -1, cropMode: false, renderPending: false };
 
 function createImageObj(file, imgElement) {
@@ -229,7 +228,6 @@ function copyCanvas(src) {
 }
 function getActive() { return (state.activeIndex >= 0 && state.activeIndex < state.images.length) ? state.images[state.activeIndex] : null; }
 
-// ==================== DOM Elements ====================
 const dom = {
     fileInput: document.getElementById('fileInput'), thumbList: document.getElementById('thumbList'),
     imgCount: document.getElementById('imgCount'), emptyState: document.getElementById('emptyState'),
@@ -249,7 +247,6 @@ const dom = {
 };
 const mainCtx = dom.mainCanvas.getContext('2d', { willReadFrequently: true });
 
-// ==================== File Loading ====================
 dom.fileInput.addEventListener('change', (e) => loadFiles(e.target.files));
 dom.canvasArea.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
 dom.canvasArea.addEventListener('drop', async (e) => {
@@ -277,7 +274,6 @@ async function loadFiles(fileList) {
     dom.fileInput.value = '';
 }
 
-// ==================== Thumbnails ====================
 function addThumbnail(imgObj, index) {
     const div = document.createElement('div'); div.className = 'thumb-item'; div.dataset.index = index;
     const img = document.createElement('img'); img.src = imgObj.workingCanvas.toDataURL('image/jpeg', 0.5);
@@ -301,7 +297,6 @@ function selectImage(index) {
     exitCropMode(); state.activeIndex = index; syncControlsToImage(); updateThumbActive(); updateUI(); requestRender();
 }
 
-// ==================== UI Updates ====================
 function updateUI() {
     const has = state.images.length > 0, active = getActive();
     dom.imgCount.textContent = state.images.length;
@@ -325,7 +320,6 @@ function updateSliderLabels() {
     dom.valRotation.textContent = parseFloat(dom.sliderRotation.value||0).toFixed(1) + '°';
 }
 
-// ==================== Rendering Pipeline ====================
 function requestRender() {
     if (!state.renderPending) { state.renderPending = true; requestAnimationFrame(() => { state.renderPending = false; renderPreview(); }); }
 }
@@ -375,7 +369,6 @@ function renderFullQuality(img) {
     return canvas;
 }
 
-// ==================== Rotation Logic ====================
 function setRotation(val, isDelta = false) {
     const img = getActive(); if (!img) return;
     let newVal = isDelta ? img.rotation + val : val;
@@ -408,7 +401,6 @@ function updateCurrentThumb() {
     if(items[state.activeIndex]&&img) items[state.activeIndex].querySelector('img').src=img.workingCanvas.toDataURL('image/jpeg',0.5);
 }
 
-// ==================== Other Sliders ====================
 ['sliderBrightness','sliderContrast','sliderSharpen'].forEach(id => {
     document.getElementById(id).addEventListener('input', () => {
         const img=getActive(); if(!img) return;
@@ -422,7 +414,6 @@ document.getElementById('btnResetParams').addEventListener('click', () => {
     img.brightness=0;img.contrast=0;img.sharpen=0;img.rotation=0; syncControlsToImage(); requestRender();
 });
 
-// ==================== Crop Mode (8 Handles Enhanced) ====================
 let cropState = { dragging: false, handle: null, startX: 0, startY: 0, rect: {x:0,y:0,w:0,h:0}, origRect: {x:0,y:0,w:0,h:0} };
 const MIN_CROP_SIZE = 20;
 dom.btnCropToggle.addEventListener('click', () => state.cropMode ? exitCropMode() : enterCropMode());
@@ -496,32 +487,34 @@ document.getElementById('btnCropApply').addEventListener('click', () => {
 });
 document.getElementById('btnCropCancel').addEventListener('click', exitCropMode);
 
-// ==================== Export Logic (对接 Go 后端) ====================
-function getEditedFileName(originalName) {
-    const lastDot = originalName.lastIndexOf('.');
-    if (lastDot === -1) return originalName + '_edited.png';
-    return originalName.substring(0, lastDot) + '_edited' + originalName.substring(lastDot);
+// ==================== Export Logic (对接 Go 后端 & 保持原扩展名) ====================
+function getExportOptions(fileName) {
+    const ext = fileName.split('.').pop().toLowerCase();
+    if (ext === 'jpg' || ext === 'jpeg') {
+        return { mime: 'image/jpeg', quality: 0.92, ext: '.jpg' };
+    }
+    return { mime: 'image/png', quality: 1.0, ext: '.png' };
 }
 
-// 单张导出
 document.getElementById('btnExportOne').addEventListener('click', async () => {
-    const img = getActive(); if (!img) return;
+    const img = getActive(); 
+    if (!img) return;
     try {
-        // 调用 Go 的 SelectDirectory 方法
         const targetDir = await window.go.main.App.SelectDirectory();
         if (!targetDir) return;
         
         const resultCanvas = renderFullQuality(img);
-        const dataUrl = resultCanvas.toDataURL('image/png');
-        const editedName = getEditedFileName(img.name).replace(/\.[^.]+$/, '.png');
+        const options = getExportOptions(img.name);
+        const editedName = await window.go.main.App.GetEditedFileName(img.name);
+        const dataUrl = resultCanvas.toDataURL(options.mime, options.quality);
         
-        // 调用 Go 的 SaveFileToDisk 方法
         await window.go.main.App.SaveFileToDisk(targetDir, editedName, dataUrl);
         alert(`✅ 已保存: ${editedName}`);
-    } catch (err) { alert('保存失败: ' + err.message); }
+    } catch (err) {
+        alert('保存失败: ' + err.message);
+    }
 });
 
-// 批量导出
 document.getElementById('btnExportAll').addEventListener('click', async () => {
     if (!state.images.length) return;
     try {
@@ -532,8 +525,10 @@ document.getElementById('btnExportAll').addEventListener('click', async () => {
         for (let i = 0; i < state.images.length; i++) {
             const img = state.images[i];
             const resultCanvas = renderFullQuality(img);
-            const dataUrl = resultCanvas.toDataURL('image/png');
-            const editedName = getEditedFileName(img.name).replace(/\.[^.]+$/, '.png');
+            
+            const options = getExportOptions(img.name);
+            const editedName = await window.go.main.App.GetEditedFileName(img.name);
+            const dataUrl = resultCanvas.toDataURL(options.mime, options.quality);
             
             await window.go.main.App.SaveFileToDisk(targetDir, editedName, dataUrl);
             updateProgress(i + 1, state.images.length);
@@ -542,15 +537,19 @@ document.getElementById('btnExportAll').addEventListener('click', async () => {
         hideProgress();
         alert(`✅ 成功将 ${state.images.length} 张图片保存到:\n${targetDir}`);
     } catch (err) {
-        console.error(err); alert('导出失败: ' + err.message); hideProgress();
+        console.error(err); 
+        alert('导出失败: ' + err.message); 
+        hideProgress();
     }
 });
 
 document.getElementById('btnClearAll').addEventListener('click', () => {
-    if (confirm('确定要清空所有图片吗？')) { state.images=[]; state.activeIndex=-1; exitCropMode(); dom.thumbList.innerHTML=''; updateUI(); }
+    if (confirm('确定要清空所有图片吗？')) { 
+        state.images=[]; state.activeIndex=-1; exitCropMode(); 
+        dom.thumbList.innerHTML=''; updateUI(); 
+    }
 });
 
-// ==================== Progress Modal ====================
 function showProgress(title, current, total) {
     dom.progressTitle.textContent = title; dom.progressFill.style.width = (current/total*100)+'%';
     dom.progressText.textContent = `${current} / ${total}`; dom.progressModal.classList.add('active');
