@@ -14,10 +14,8 @@ import (
 var assets embed.FS
 
 func main() {
-	// 初始化后端 App
 	app := NewApp()
 
-	// 配置窗口参数
 	err := wails.Run(&options.App{
 		Title:     "离线图片批量处理工具",
 		Width:     1366,
@@ -25,11 +23,11 @@ func main() {
 		MinWidth:  1024,
 		MinHeight: 700,
 		AssetServer: &assetserver.Options{
-			Assets: assets, // 将 frontend 文件夹嵌入到 exe 中
+			Assets: assets,
 		},
 		OnStartup: app.startup,
 		Bind: []interface{}{
-			app, // 将 app.go 中的方法暴露给前端 JS 调用
+			app,
 		},
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
