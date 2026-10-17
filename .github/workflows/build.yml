@@ -7,27 +7,30 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest # 使用 Windows 虚拟机进行编译
+    runs-on: windows-latest
     
     steps:
+      # 修复1：升级到 v4 版本以消除 Node.js 20 弃用警告
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 修复1：明确指定 setup-go 版本，关闭缓存以避免 go.sum 报错
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
+          cache: false 
+
+      # 修复2：显式执行 go mod tidy，这会自动生成缺失的 go.sum 文件并下载依赖
+      - name: Download Dependencies & Generate go.sum
+        run: go mod tidy
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      - name: Download Go Dependencies
-        run: go mod tidy
-
-      - name: Build EXE (No Console Window)
-        # -platform windows/amd64 指定编译 Windows 64位
-        # -webview2 embed 将 WebView2 运行时打包进去，确保没装 Edge 的电脑也能跑
-        run: wails build -clean -platform windows/amd64 -webview2 embed
+      - name: Build EXE
+        # 移除了可能引起网络下载超时的 webview2 embed，改用系统默认
+        run: wails build -clean -platform windows/amd64
 
       - name: Upload EXE Artifact
         uses: actions/upload-artifact@v4
