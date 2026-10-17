@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>离线图片批量处理工具</title>
+<style>
+:root {
+    --bg-dark: #1e1e2e; --bg-panel: #2a2a3c; --bg-hover: #36364a;
+    --text-main: #e0e0e0; --text-muted: #a0a0b0; --accent: #7c5cfc;
+    --accent-hover: #9b82fc; --danger: #f44336; --border: #3a3a50;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: var(--bg-panel); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 10; }
+header h1 { font-size: 18px; font-weight: 600; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
+.btn { padding: 6px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-outline { background: transparent; color: var(--text-main); border: 1px solid var(--border); }
+.btn-outline:hover { background: var(--bg-hover); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+label.btn { display: inline-flex; align-items: center; gap: 5px; }
+input[type="file"] { display: none; }
+main { display: flex; flex: 1; overflow: hidden; }
+.sidebar { width: 180px; background: var(--bg-panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+.sidebar-header { padding: 10px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.thumb-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.thumb-item { position: relative; border-radius: 6px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: border-color .2s; aspect-ratio: 1; background: #111; }
+.thumb-item.active { border-color: var(--accent); }
+.thumb-item img { width: 100%; height: 100%; object-fit: cover; }
+.thumb-item .thumb-name { position: absolute; bottom: 0; left: 0; right: 0; padding: 3px 5px; background: rgba(0,0,0,0.7); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thumb-item .thumb-remove { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; background: rgba(244,67,54,0.8); color: #fff; border: none; cursor: pointer; font-size: 12px; display: none; align-items: center; justify-content: center; line-height: 1; }
+.thumb-item:hover .thumb-remove { display: flex; }
+.canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background: #111118; }
+.canvas-container { position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+#mainCanvas { display: block; max-width: 100%; max-height: 100%; }
+.empty-state { color: var(--text-muted); font-size: 16px; text-align: center; }
+.empty-state p { margin-top: 10px; font-size: 13px; }
+.crop-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; z-index: 5; }
+.crop-overlay.active { display: block; }
+.crop-selection { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,0.6); }
+.crop-grid { position: absolute; inset: 0; pointer-events: none; display: none; }
+.crop-grid.visible { display: block; }
+.grid-h1, .grid-h2, .grid-v1, .grid-v2 { position: absolute; background: rgba(255,255,255,0.3); pointer-events: none; }
+.grid-h1, .grid-h2 { left: 0; right: 0; height: 1px; }
+.grid-h1 { top: 33.33%; } .grid-h2 { top: 66.66%; }
+.grid-v1, .grid-v2 { top: 0; bottom: 0; width: 1px; }
+.grid-v1 { left: 33.33%; } .grid-v2 { left: 66.66%; }
+.crop-info { position: absolute; bottom: -24px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; white-space: nowrap; pointer-events: none; }
+.crop-handle { position: absolute; background: #fff; border: 1.5px solid var(--accent); z-index: 10; transition: background 0.15s, transform 0.15s; }
+.crop-handle:hover { background: var(--accent); transform: scale(1.2); }
+.handle-corner { width: 12px; height: 12px; border-radius: 2px; }
+.handle-tl { top: -6px; left: -6px; cursor: nwse-resize; }
+.handle-tr { top: -6px; right: -6px; cursor: nesw-resize; }
+.handle-bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.handle-br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+.handle-edge { border-radius: 3px; }
+.handle-t { top: -4px; left: 50%; transform: translateX(-50%); width: 24px; height: 8px; cursor: ns-resize; }
+.handle-b { bottom: -4px; left: 50%; transform: translateX(-50%); width: 24px; height: 8px; cursor: ns-resize; }
+.handle-l { left: -4px; top: 50%; transform: translateY(-50%); width: 8px; height: 24px; cursor: ew-resize; }
+.handle-r { right: -4px; top: 50%; transform: translateY(-50%); width: 8px; height: 24px; cursor: ew-resize; }
+.handle-t:hover { transform: translateX(-50%) scale(1.1); }
+.handle-b:hover { transform: translateX(-50%) scale(1.1); }
+.handle-l:hover { transform: translateY(-50%) scale(1.1); }
+.handle-r:hover { transform: translateY(-50%) scale(1.1); }
+.controls { width: 300px; background: var(--bg-panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+.ctrl-section { padding: 15px; border-bottom: 1px solid var(--border); }
+.ctrl-section h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.slider-group { margin-bottom: 14px; }
+.slider-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; align-items: center; }
+.slider-label .val-display { color: var(--accent); font-weight: 600; min-width: 40px; text-align: right; }
+input[type="range"] { -webkit-appearance: none; width: 100%; height: 6px; border-radius: 3px; background: var(--border); outline: none; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff; }
+.input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.num-input { width: 80px; padding: 4px 8px; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text-main); border-radius: 4px; font-size: 13px; text-align: center; outline: none; }
+.num-input:focus { border-color: var(--accent); }
+.micro-btns { display: flex; gap: 4px; }
+.micro-btn { width: 32px; height: 28px; display: flex; align-items: center; justify-content: center; background: var(--bg-dark); border: 1px solid var(--border); color: var(--text-main); border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+.micro-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hint-text { font-size: 11px; color: var(--text-muted); margin-top: -6px; margin-bottom: 10px; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-group .btn { flex: 1; min-width: 60px; text-align: center; }
+.crop-actions { display: none; gap: 8px; margin-top: 10px; }
+.crop-actions.active { display: flex; }
+.checkbox-group { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
+.checkbox-group input { accent-color: var(--accent); }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+.modal-overlay.active { display: flex; }
+.modal { background: var(--bg-panel); border-radius: 12px; padding: 30px; min-width: 350px; text-align: center; }
+.modal h2 { font-size: 16px; margin-bottom: 15px; }
+.progress-bar { width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+.progress-fill { height: 100%; background: var(--accent); transition: width .3s; width: 0%; }
+.progress-text { font-size: 13px; color: var(--text-muted); }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>📷 离线图片批量处理工具</h1>
+    <div class="header-actions">
+        <label class="btn btn-primary">📁 添加图片<input type="file" id="fileInput" multiple accept="image/*"></label>
+        <button class="btn btn-outline" id="btnClearAll" disabled>清空全部</button>
+        <button class="btn btn-primary" id="btnExportAll" disabled>💾 批量导出到目录</button>
+    </div>
+</header>
+
+<main>
+    <div class="sidebar">
+        <div class="sidebar-header"><span>图片列表 (<span id="imgCount">0</span>)</span></div>
+        <div class="thumb-list" id="thumbList"></div>
+    </div>
+
+    <div class="canvas-area" id="canvasArea">
+        <div class="empty-state" id="emptyState">
+            <div style="font-size:48px;">🖼️</div>
+            <p>点击「添加图片」或拖拽图片到此处开始</p>
+        </div>
+        <div class="canvas-container" id="canvasContainer" style="display:none;">
+            <canvas id="mainCanvas"></canvas>
+            <div class="crop-overlay" id="cropOverlay">
+                <div class="crop-selection" id="cropSelection">
+                    <div class="crop-grid" id="cropGrid">
+                        <div class="grid-h1"></div><div class="grid-h2"></div>
+                        <div class="grid-v1"></div><div class="grid-v2"></div>
+                    </div>
+                    <div class="crop-info" id="cropInfo">0 x 0</div>
+                    <div class="crop-handle handle-corner handle-tl" data-handle="tl"></div>
+                    <div class="crop-handle handle-corner handle-tr" data-handle="tr"></div>
+                    <div class="crop-handle handle-corner handle-bl" data-handle="bl"></div>
+                    <div class="crop-handle handle-corner handle-br" data-handle="br"></div>
+                    <div class="crop-handle handle-edge handle-t" data-handle="t"></div>
+                    <div class="crop-handle handle-edge handle-b" data-handle="b"></div>
+                    <div class="crop-handle handle-edge handle-l" data-handle="l"></div>
+                    <div class="crop-handle handle-edge handle-r" data-handle="r"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="ctrl-section">
+            <h3>调整参数</h3>
+            <div class="slider-group">
+                <div class="slider-label"><span>亮度</span><span class="val-display" id="valBrightness">0</span></div>
+                <input type="range" id="sliderBrightness" min="-100" max="100" value="0">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>对比度</span><span class="val-display" id="valContrast">0</span></div>
+                <input type="range" id="sliderContrast" min="-100" max="100" value="0">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>锐化</span><span class="val-display" id="valSharpen">0</span></div>
+                <input type="range" id="sliderSharpen" min="0" max="100" value="0">
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="chkApplyAll">
+                <label for="chkApplyAll">将当前参数应用到所有图片</label>
+            </div>
+            <button class="btn btn-outline" id="btnResetParams" style="width:100%;">重置当前图片参数</button>
+        </div>
+
+        <div class="ctrl-section">
+            <h3>旋转</h3>
+            <div class="btn-group">
+                <button class="btn btn-outline" id="btnRotateL">↺ 左旋90°</button>
+                <button class="btn btn-outline" id="btnRotateR">↻ 右旋90°</button>
+            </div>
+            <div class="slider-group" style="margin-top:14px;">
+                <div class="slider-label"><span>自由旋转</span><span class="val-display" id="valRotation">0.0°</span></div>
+                <input type="range" id="sliderRotation" min="-180" max="180" step="0.1" value="0">
+                <div class="input-row" style="margin-top: 8px;">
+                    <input type="number" id="inputRotation" class="num-input" min="-180" max="180" step="0.1" value="0.0">
+                    <span style="font-size: 12px; color: var(--text-muted);">度</span>
+                    <div class="micro-btns">
+                        <button class="micro-btn" id="btnRotMinus" title="向左旋转 0.1° (-)">-</button>
+                        <button class="micro-btn" id="btnRotPlus" title="向右旋转 0.1° (+)">+</button>
+                    </div>
+                </div>
+                <div class="hint-text">提示：选中输入框后按 ↑/↓ 键可微调 ±0.1°</div>
+            </div>
+        </div>
+
+        <div class="ctrl-section">
+            <h3>裁剪</h3>
+            <button class="btn btn-outline" id="btnCropToggle" style="width:100%;">✂️ 进入裁剪模式</button>
+            <div class="crop-actions" id="cropActions">
+                <button class="btn btn-primary" id="btnCropApply" style="flex:1;">确认裁剪</button>
+                <button class="btn btn-outline" id="btnCropCancel" style="flex:1;">取消</button>
+            </div>
+        </div>
+
+        <div class="ctrl-section">
+            <h3>操作</h3>
+            <button class="btn btn-outline" id="btnExportOne" style="width:100%;margin-bottom:8px;" disabled>导出当前图片</button>
+        </div>
+    </div>
+</main>
+
+<div class="modal-overlay" id="progressModal">
+    <div class="modal">
+        <h2 id="progressTitle">正在处理...</h2>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText">0 / 0</div>
+    </div>
+</div>
+
+<script>
+// ==================== State Management ====================
+const state = { images: [], activeIndex: -1, cropMode: false, renderPending: false };
+
+function createImageObj(file, imgElement) {
+    const canvas = document.createElement('canvas');
+    canvas.width = imgElement.naturalWidth; canvas.height = imgElement.naturalHeight;
+    canvas.getContext('2d').drawImage(imgElement, 0, 0);
+    return {
+        id: Date.now() + Math.random(), name: file.name,
+        originalCanvas: canvas, workingCanvas: copyCanvas(canvas),
+        brightness: 0, contrast: 0, sharpen: 0, rotation: 0, previewScale: 1
+    };
+}
+function copyCanvas(src) {
+    const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+    c.getContext('2d').drawImage(src, 0, 0); return c;
+}
+function getActive() { return (state.activeIndex >= 0 && state.activeIndex < state.images.length) ? state.images[state.activeIndex] : null; }
+
+// ==================== DOM Elements ====================
+const dom = {
+    fileInput: document.getElementById('fileInput'), thumbList: document.getElementById('thumbList'),
+    imgCount: document.getElementById('imgCount'), emptyState: document.getElementById('emptyState'),
+    canvasContainer: document.getElementById('canvasContainer'), canvasArea: document.getElementById('canvasArea'),
+    mainCanvas: document.getElementById('mainCanvas'), cropOverlay: document.getElementById('cropOverlay'),
+    cropSelection: document.getElementById('cropSelection'), cropGrid: document.getElementById('cropGrid'),
+    cropInfo: document.getElementById('cropInfo'),
+    sliderBrightness: document.getElementById('sliderBrightness'), sliderContrast: document.getElementById('sliderContrast'),
+    sliderSharpen: document.getElementById('sliderSharpen'), sliderRotation: document.getElementById('sliderRotation'),
+    inputRotation: document.getElementById('inputRotation'),
+    valBrightness: document.getElementById('valBrightness'), valContrast: document.getElementById('valContrast'),
+    valSharpen: document.getElementById('valSharpen'), valRotation: document.getElementById('valRotation'),
+    chkApplyAll: document.getElementById('chkApplyAll'), btnCropToggle: document.getElementById('btnCropToggle'),
+    cropActions: document.getElementById('cropActions'), progressModal: document.getElementById('progressModal'),
+    progressFill: document.getElementById('progressFill'), progressText: document.getElementById('progressText'),
+    progressTitle: document.getElementById('progressTitle')
+};
+const mainCtx = dom.mainCanvas.getContext('2d', { willReadFrequently: true });
+
+// ==================== File Loading ====================
+dom.fileInput.addEventListener('change', (e) => loadFiles(e.target.files));
+dom.canvasArea.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+dom.canvasArea.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
+});
+async function loadFiles(fileList) {
+    const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+    let loaded = 0;
+    for (const file of files) {
+        await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    state.images.push(createImageObj(file, img));
+                    addThumbnail(state.images[state.images.length-1], state.images.length-1);
+                    loaded++;
+                    if (loaded === files.length) { updateUI(); if (state.activeIndex === -1) selectImage(0); }
+                    resolve();
+                }; img.src = e.target.result;
+            }; reader.readAsDataURL(file);
+        });
+    }
+    dom.fileInput.value = '';
+}
+
+// ==================== Thumbnails ====================
+function addThumbnail(imgObj, index) {
+    const div = document.createElement('div'); div.className = 'thumb-item'; div.dataset.index = index;
+    const img = document.createElement('img'); img.src = imgObj.workingCanvas.toDataURL('image/jpeg', 0.5);
+    const name = document.createElement('div'); name.className = 'thumb-name'; name.textContent = imgObj.name;
+    const removeBtn = document.createElement('button'); removeBtn.className = 'thumb-remove'; removeBtn.innerHTML = '×';
+    removeBtn.onclick = (e) => { e.stopPropagation(); removeImage(index); };
+    div.appendChild(img); div.appendChild(name); div.appendChild(removeBtn);
+    div.onclick = () => selectImage(index); dom.thumbList.appendChild(div);
+}
+function rebuildThumbnails() { dom.thumbList.innerHTML = ''; state.images.forEach((o,i)=>addThumbnail(o,i)); updateThumbActive(); }
+function updateThumbActive() { document.querySelectorAll('.thumb-item').forEach((el,i)=>el.classList.toggle('active',i===state.activeIndex)); }
+function removeImage(index) {
+    state.images.splice(index, 1);
+    if (!state.images.length) state.activeIndex = -1;
+    else if (state.activeIndex >= state.images.length) state.activeIndex = state.images.length - 1;
+    else if (state.activeIndex > index) state.activeIndex--;
+    exitCropMode(); rebuildThumbnails(); updateUI(); if (state.activeIndex >= 0) renderPreview();
+}
+function selectImage(index) {
+    if (index < 0 || index >= state.images.length) return;
+    exitCropMode(); state.activeIndex = index; syncControlsToImage(); updateThumbActive(); updateUI(); requestRender();
+}
+
+// ==================== UI Updates ====================
+function updateUI() {
+    const has = state.images.length > 0, active = getActive();
+    dom.imgCount.textContent = state.images.length;
+    dom.emptyState.style.display = has ? 'none' : 'block';
+    dom.canvasContainer.style.display = has ? 'block' : 'none';
+    document.getElementById('btnClearAll').disabled = !has;
+    document.getElementById('btnExportAll').disabled = !has;
+    document.getElementById('btnExportOne').disabled = !active;
+    document.querySelectorAll('.controls input, .controls button:not(#btnCropToggle):not(#btnCropApply):not(#btnCropCancel)').forEach(c=>c.disabled=!active);
+}
+function syncControlsToImage() {
+    const img = getActive(); if (!img) return;
+    dom.sliderBrightness.value = img.brightness; dom.sliderContrast.value = img.contrast;
+    dom.sliderSharpen.value = img.sharpen; dom.sliderRotation.value = img.rotation;
+    dom.inputRotation.value = img.rotation.toFixed(1); updateSliderLabels();
+}
+function updateSliderLabels() {
+    dom.valBrightness.textContent = dom.sliderBrightness.value;
+    dom.valContrast.textContent = dom.sliderContrast.value;
+    dom.valSharpen.textContent = dom.sliderSharpen.value;
+    dom.valRotation.textContent = parseFloat(dom.sliderRotation.value||0).toFixed(1) + '°';
+}
+
+// ==================== Rendering Pipeline ====================
+function requestRender() {
+    if (!state.renderPending) { state.renderPending = true; requestAnimationFrame(() => { state.renderPending = false; renderPreview(); }); }
+}
+function renderPreview() {
+    const img = getActive(); if (!img) return;
+    const areaW = dom.canvasArea.clientWidth - 40, areaH = dom.canvasArea.clientHeight - 40;
+    const srcW = img.workingCanvas.width, srcH = img.workingCanvas.height;
+    const scale = Math.min(1, areaW / srcW, areaH / srcH);
+    const dispW = Math.round(srcW * scale), dispH = Math.round(srcH * scale);
+    dom.mainCanvas.width = dispW; dom.mainCanvas.height = dispH;
+    dom.mainCanvas.style.width = dispW + 'px'; dom.mainCanvas.style.height = dispH + 'px';
+    img.previewScale = scale;
+    applyTransforms(mainCtx, img, dispW, dispH, scale);
+}
+function applyTransforms(ctx, img, outW, outH, scale) {
+    const srcW = img.workingCanvas.width, srcH = img.workingCanvas.height;
+    ctx.clearRect(0, 0, outW, outH); ctx.save();
+    ctx.translate(outW / 2, outH / 2); ctx.rotate(img.rotation * Math.PI / 180); ctx.translate(-outW / 2, -outH / 2);
+    ctx.filter = `brightness(${1+img.brightness/100}) contrast(${1+img.contrast/100})`;
+    ctx.drawImage(img.workingCanvas, 0, 0, srcW, srcH, 0, 0, srcW*scale, srcH*scale);
+    ctx.restore();
+    if (img.sharpen > 0) applySharpen(ctx, outW, outH, img.sharpen / 100);
+}
+function applySharpen(ctx, w, h, amount) {
+    if (amount <= 0) return;
+    const imageData = ctx.getImageData(0, 0, w, h), data = imageData.data, copy = new Uint8ClampedArray(data);
+    const center = 1 + 4 * amount, side = -amount;
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const idx = (y * w + x) * 4;
+        for (let c = 0; c < 3; c++) {
+            const val = copy[idx+c]*center + copy[((y-1)*w+x)*4+c]*side + copy[((y+1)*w+x)*4+c]*side + copy[(y*w+x-1)*4+c]*side + copy[(y*w+x+1)*4+c]*side;
+            data[idx+c] = Math.max(0, Math.min(255, val));
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+}
+function renderFullQuality(img) {
+    const srcW = img.workingCanvas.width, srcH = img.workingCanvas.height;
+    const rad = img.rotation * Math.PI / 180, cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const outW = Math.round(srcW*cos+srcH*sin), outH = Math.round(srcW*sin+srcH*cos);
+    const canvas = document.createElement('canvas'); canvas.width = outW; canvas.height = outH;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.translate(outW/2, outH/2); ctx.rotate(rad); ctx.translate(-srcW/2, -srcH/2);
+    ctx.filter = `brightness(${1+img.brightness/100}) contrast(${1+img.contrast/100})`;
+    ctx.drawImage(img.workingCanvas, 0, 0); ctx.filter = 'none'; ctx.setTransform(1,0,0,1,0,0);
+    if (img.sharpen > 0) applySharpen(ctx, outW, outH, img.sharpen / 100);
+    return canvas;
+}
+
+// ==================== Rotation Logic ====================
+function setRotation(val, isDelta = false) {
+    const img = getActive(); if (!img) return;
+    let newVal = isDelta ? img.rotation + val : val;
+    newVal = Math.round(Math.max(-180, Math.min(180, newVal)) * 10) / 10;
+    img.rotation = newVal; dom.sliderRotation.value = newVal; dom.inputRotation.value = newVal.toFixed(1); updateSliderLabels();
+    if (dom.chkApplyAll.checked) state.images.forEach(o => { if(o!==img) o.rotation=newVal; });
+    requestRender();
+}
+dom.sliderRotation.addEventListener('input', (e) => setRotation(parseFloat(e.target.value)));
+dom.inputRotation.addEventListener('input', (e) => { let v=parseFloat(e.target.value); if(!isNaN(v)) setRotation(v); });
+dom.inputRotation.addEventListener('change', (e) => { let v=parseFloat(e.target.value); setRotation(isNaN(v)?0:v); });
+dom.inputRotation.addEventListener('keydown', (e) => {
+    if (e.key==='ArrowUp'||e.key==='ArrowRight') { e.preventDefault(); setRotation(0.1, true); }
+    else if (e.key==='ArrowDown'||e.key==='ArrowLeft') { e.preventDefault(); setRotation(-0.1, true); }
+});
+document.getElementById('btnRotPlus').addEventListener('click', () => setRotation(0.1, true));
+document.getElementById('btnRotMinus').addEventListener('click', () => setRotation(-0.1, true));
+document.getElementById('btnRotateL').addEventListener('click', () => commitRotation(-90));
+document.getElementById('btnRotateR').addEventListener('click', () => commitRotation(90));
+function commitRotation(degrees) {
+    const img = getActive(); if (!img) return;
+    const src=img.workingCanvas, rad=degrees*Math.PI/180, srcW=src.width, srcH=src.height;
+    const outW=(Math.abs(degrees)%180===90)?srcH:srcW, outH=(Math.abs(degrees)%180===90)?srcW:srcH;
+    const c=document.createElement('canvas'); c.width=outW; c.height=outH;
+    const ctx=c.getContext('2d'); ctx.translate(outW/2,outH/2); ctx.rotate(rad); ctx.drawImage(src,-srcW/2,-srcH/2);
+    img.workingCanvas=c; setRotation(0); exitCropMode(); requestRender(); updateCurrentThumb();
+}
+function updateCurrentThumb() {
+    const items=dom.thumbList.querySelectorAll('.thumb-item'), img=getActive();
+    if(items[state.activeIndex]&&img) items[state.activeIndex].querySelector('img').src=img.workingCanvas.toDataURL('image/jpeg',0.5);
+}
+
+// ==================== Other Sliders ====================
+['sliderBrightness','sliderContrast','sliderSharpen'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+        const img=getActive(); if(!img) return;
+        img.brightness=parseInt(dom.sliderBrightness.value); img.contrast=parseInt(dom.sliderContrast.value); img.sharpen=parseInt(dom.sliderSharpen.value);
+        if(dom.chkApplyAll.checked) state.images.forEach(o=>{if(o!==img){o.brightness=img.brightness;o.contrast=img.contrast;o.sharpen=img.sharpen;}});
+        updateSliderLabels(); requestRender();
+    });
+});
+document.getElementById('btnResetParams').addEventListener('click', () => {
+    const img=getActive(); if(!img) return;
+    img.brightness=0;img.contrast=0;img.sharpen=0;img.rotation=0; syncControlsToImage(); requestRender();
+});
+
+// ==================== Crop Mode (8 Handles Enhanced) ====================
+let cropState = { dragging: false, handle: null, startX: 0, startY: 0, rect: {x:0,y:0,w:0,h:0}, origRect: {x:0,y:0,w:0,h:0} };
+const MIN_CROP_SIZE = 20;
+dom.btnCropToggle.addEventListener('click', () => state.cropMode ? exitCropMode() : enterCropMode());
+function enterCropMode() {
+    const img = getActive(); if (!img) return;
+    state.cropMode = true; dom.cropOverlay.classList.add('active');
+    dom.btnCropToggle.textContent = '退出裁剪模式'; dom.cropActions.classList.add('active');
+    dom.cropOverlay.style.pointerEvents = 'auto';
+    const pad = 30, cw = dom.mainCanvas.width, ch = dom.mainCanvas.height;
+    cropState.rect = { x: pad, y: pad, w: Math.max(MIN_CROP_SIZE, cw - pad*2), h: Math.max(MIN_CROP_SIZE, ch - pad*2) };
+    updateCropUI();
+}
+function exitCropMode() {
+    state.cropMode = false; dom.cropOverlay.classList.remove('active'); dom.cropGrid.classList.remove('visible');
+    dom.btnCropToggle.textContent = '✂️ 进入裁剪模式'; dom.cropActions.classList.remove('active');
+}
+function updateCropUI() {
+    const r = cropState.rect;
+    dom.cropSelection.style.left = r.x + 'px'; dom.cropSelection.style.top = r.y + 'px';
+    dom.cropSelection.style.width = r.w + 'px'; dom.cropSelection.style.height = r.h + 'px';
+    const img = getActive();
+    if (img) {
+        const s = img.previewScale;
+        dom.cropInfo.textContent = `${Math.round(r.w / s)} × ${Math.round(r.h / s)} px`;
+    }
+}
+dom.cropOverlay.addEventListener('mousedown', (e) => {
+    if (!state.cropMode) return; e.preventDefault();
+    const handle = e.target.dataset.handle;
+    const rect = dom.cropOverlay.getBoundingClientRect();
+    cropState.dragging = true; cropState.handle = handle || 'move';
+    cropState.startX = e.clientX - rect.left; cropState.startY = e.clientY - rect.top;
+    cropState.origRect = { ...cropState.rect }; dom.cropGrid.classList.add('visible');
+});
+window.addEventListener('mousemove', (e) => {
+    if (state.cropMode && !cropState.dragging) {
+        const target = e.target;
+        if (target.dataset && target.dataset.handle) dom.cropOverlay.style.cursor = window.getComputedStyle(target).cursor;
+        else if (target.id === 'cropSelection' || target.classList.contains('crop-grid') || target.classList.contains('crop-info')) dom.cropOverlay.style.cursor = 'move';
+        else dom.cropOverlay.style.cursor = 'crosshair';
+    }
+    if (!cropState.dragging || !state.cropMode) return;
+    const rect = dom.cropOverlay.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const dx = mx - cropState.startX, dy = my - cropState.startY;
+    const o = cropState.origRect, cw = dom.mainCanvas.width, ch = dom.mainCanvas.height;
+    let nx = o.x, ny = o.y, nw = o.w, nh = o.h;
+    switch (cropState.handle) {
+        case 'move': nx=Math.max(0,Math.min(cw-o.w,o.x+dx)); ny=Math.max(0,Math.min(ch-o.h,o.y+dy)); break;
+        case 'tl': nx=o.x+dx; ny=o.y+dy; nw=o.w-dx; nh=o.h-dy; if(nw<MIN_CROP_SIZE){nx=o.x+o.w-MIN_CROP_SIZE;nw=MIN_CROP_SIZE;} if(nh<MIN_CROP_SIZE){ny=o.y+o.h-MIN_CROP_SIZE;nh=MIN_CROP_SIZE;} nx=Math.max(0,nx); ny=Math.max(0,ny); break;
+        case 'tr': ny=o.y+dy; nw=o.w+dx; nh=o.h-dy; if(nw<MIN_CROP_SIZE)nw=MIN_CROP_SIZE; if(nh<MIN_CROP_SIZE){ny=o.y+o.h-MIN_CROP_SIZE;nh=MIN_CROP_SIZE;} ny=Math.max(0,ny); nw=Math.min(cw-o.x,nw); break;
+        case 'bl': nx=o.x+dx; nw=o.w-dx; nh=o.h+dy; if(nw<MIN_CROP_SIZE){nx=o.x+o.w-MIN_CROP_SIZE;nw=MIN_CROP_SIZE;} if(nh<MIN_CROP_SIZE)nh=MIN_CROP_SIZE; nx=Math.max(0,nx); nh=Math.min(ch-o.y,nh); break;
+        case 'br': nw=o.w+dx; nh=o.h+dy; if(nw<MIN_CROP_SIZE)nw=MIN_CROP_SIZE; if(nh<MIN_CROP_SIZE)nh=MIN_CROP_SIZE; nw=Math.min(cw-o.x,nw); nh=Math.min(ch-o.y,nh); break;
+        case 't': ny=o.y+dy; nh=o.h-dy; if(nh<MIN_CROP_SIZE){ny=o.y+o.h-MIN_CROP_SIZE;nh=MIN_CROP_SIZE;} ny=Math.max(0,ny); break;
+        case 'b': nh=o.h+dy; if(nh<MIN_CROP_SIZE)nh=MIN_CROP_SIZE; nh=Math.min(ch-o.y,nh); break;
+        case 'l': nx=o.x+dx; nw=o.w-dx; if(nw<MIN_CROP_SIZE){nx=o.x+o.w-MIN_CROP_SIZE;nw=MIN_CROP_SIZE;} nx=Math.max(0,nx); break;
+        case 'r': nw=o.w+dx; if(nw<MIN_CROP_SIZE)nw=MIN_CROP_SIZE; nw=Math.min(cw-o.x,nw); break;
+    }
+    cropState.rect = { x: nx, y: ny, w: nw, h: nh }; updateCropUI();
+});
+window.addEventListener('mouseup', () => { if (cropState.dragging) cropState.dragging = false; });
+document.getElementById('btnCropApply').addEventListener('click', () => {
+    const img = getActive(); if (!img) return;
+    const s = img.previewScale;
+    const sx=Math.max(0,Math.round(cropState.rect.x/s)), sy=Math.max(0,Math.round(cropState.rect.y/s));
+    const sw=Math.min(Math.round(cropState.rect.w/s), img.workingCanvas.width-sx), sh=Math.min(Math.round(cropState.rect.h/s), img.workingCanvas.height-sy);
+    if (sw<=0||sh<=0) return;
+    const c=document.createElement('canvas'); c.width=sw; c.height=sh;
+    c.getContext('2d').drawImage(img.workingCanvas, sx,sy,sw,sh, 0,0,sw,sh);
+    img.workingCanvas=c; setRotation(0); exitCropMode(); requestRender(); updateCurrentThumb();
+});
+document.getElementById('btnCropCancel').addEventListener('click', exitCropMode);
+
+// ==================== Export Logic (对接 Go 后端) ====================
+function getEditedFileName(originalName) {
+    const lastDot = originalName.lastIndexOf('.');
+    if (lastDot === -1) return originalName + '_edited.png';
+    return originalName.substring(0, lastDot) + '_edited' + originalName.substring(lastDot);
+}
+
+// 单张导出
+document.getElementById('btnExportOne').addEventListener('click', async () => {
+    const img = getActive(); if (!img) return;
+    try {
+        // 调用 Go 的 SelectDirectory 方法
+        const targetDir = await window.go.main.App.SelectDirectory();
+        if (!targetDir) return;
+        
+        const resultCanvas = renderFullQuality(img);
+        const dataUrl = resultCanvas.toDataURL('image/png');
+        const editedName = getEditedFileName(img.name).replace(/\.[^.]+$/, '.png');
+        
+        // 调用 Go 的 SaveFileToDisk 方法
+        await window.go.main.App.SaveFileToDisk(targetDir, editedName, dataUrl);
+        alert(`✅ 已保存: ${editedName}`);
+    } catch (err) { alert('保存失败: ' + err.message); }
+});
+
+// 批量导出
+document.getElementById('btnExportAll').addEventListener('click', async () => {
+    if (!state.images.length) return;
+    try {
+        const targetDir = await window.go.main.App.SelectDirectory();
+        if (!targetDir) return;
+
+        showProgress('正在批量保存到本地目录...', 0, state.images.length);
+        for (let i = 0; i < state.images.length; i++) {
+            const img = state.images[i];
+            const resultCanvas = renderFullQuality(img);
+            const dataUrl = resultCanvas.toDataURL('image/png');
+            const editedName = getEditedFileName(img.name).replace(/\.[^.]+$/, '.png');
+            
+            await window.go.main.App.SaveFileToDisk(targetDir, editedName, dataUrl);
+            updateProgress(i + 1, state.images.length);
+            await new Promise(r => setTimeout(r, 30));
+        }
+        hideProgress();
+        alert(`✅ 成功将 ${state.images.length} 张图片保存到:\n${targetDir}`);
+    } catch (err) {
+        console.error(err); alert('导出失败: ' + err.message); hideProgress();
+    }
+});
+
+document.getElementById('btnClearAll').addEventListener('click', () => {
+    if (confirm('确定要清空所有图片吗？')) { state.images=[]; state.activeIndex=-1; exitCropMode(); dom.thumbList.innerHTML=''; updateUI(); }
+});
+
+// ==================== Progress Modal ====================
+function showProgress(title, current, total) {
+    dom.progressTitle.textContent = title; dom.progressFill.style.width = (current/total*100)+'%';
+    dom.progressText.textContent = `${current} / ${total}`; dom.progressModal.classList.add('active');
+}
+function updateProgress(current, total) {
+    dom.progressFill.style.width = (current/total*100)+'%'; dom.progressText.textContent = `${current} / ${total}`;
+}
+function hideProgress() { dom.progressModal.classList.remove('active'); }
+
+window.addEventListener('resize', () => { if (getActive()) requestRender(); });
+updateUI();
+</script>
+</body>
+</html>
