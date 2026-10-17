@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "image-editor-app",
+  "outputfilename": "image-editor-app",
+  "frontend:install": "",
+  "frontend:build": "",
+  "author": {
+    "name": "User",
+    "email": "user@example.com"
+  },
+  "info": {
+    "companyName": "Offline Tools",
+    "productName": "离线图片批量处理工具",
+    "productVersion": "1.0.0"
+  }
+}
